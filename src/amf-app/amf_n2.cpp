@@ -33,6 +33,7 @@
 #include "per_encoder.h"
 #include "Paging.hpp"
 #include "HandoverCommandTransfer.hpp"
+#include "PduSessionResourceModifyConfirm.hpp"
 #include "PduSessionResourceModifyRequest.hpp"
 #include "PduSessionResourceReleaseCommand.hpp"
 #include "PduSessionResourceSetupRequest.hpp"
@@ -168,6 +169,15 @@ void amf_n2_task(void* args_p) {
             "Received PDU Session Resource Modify Request message, handling");
         auto msg_ptr =
             std::dynamic_pointer_cast<itti_pdu_session_resource_modify_request>(
+                shared_msg);
+        amf_n2_inst->handle_itti_message(msg_ptr);
+      } break;
+
+      case PDU_SESSION_RESOURCE_MODIFY_CONFIRM: {
+        Logger::amf_n2().info(
+            "Received PDU Session Resource Modify Confirm message, handling");
+        auto msg_ptr =
+            std::dynamic_pointer_cast<itti_pdu_session_resource_modify_confirm>(
                 shared_msg);
         amf_n2_inst->handle_itti_message(msg_ptr);
       } break;
@@ -1361,6 +1371,62 @@ void amf_n2::handle_itti_message(
   free(buffer);
   buffer = nullptr;
   oai::utils::utils::bdestroy_wrapper(&item.nasPdu);
+}
+
+//------------------------------------------------------------------------------
+void amf_n2::handle_itti_message(
+    std::shared_ptr<itti_pdu_session_resource_modify_confirm>& itti_msg) {
+  Logger::amf_n2().debug("Handle PDU Session Resource Modify Confirm ...");
+
+  // Get UE NGAP Context
+  std::shared_ptr<ue_ngap_context> unc = {};
+  if (!get_ngap_ctx_by_ran_amf(
+          itti_msg->ran_ue_ngap_id, itti_msg->amf_ue_ngap_id, unc))
+    return;
+
+  std::shared_ptr<gnb_context> gc = {};
+  if (!assoc_id_2_gnb_context(unc->gnb_assoc_id, gc)) {
+    Logger::amf_n2().error(
+        "No existing gNG context with assoc_id (%d)", unc->gnb_assoc_id);
+    return;
+  }
+
+  auto modify_confirm_msg =
+      std::make_unique<PduSessionResourceModifyConfirmMsg>();
+
+  modify_confirm_msg->setAmfUeNgapId(itti_msg->amf_ue_ngap_id);
+  modify_confirm_msg->setRanUeNgapId(itti_msg->ran_ue_ngap_id);
+
+  std::vector<PDUSessionResourceModifyConfirmItem_t> list;
+  PDUSessionResourceModifyConfirmItem_t item = {};
+  item.pduSessionId                          = itti_msg->pdu_session_id;
+  ngap_utils::bstring_2_octet_string(
+      itti_msg->n2sm, item.pduSessionResourceModifyConfirmTransfer);
+  list.push_back(item);
+  modify_confirm_msg->setPduSessionResourceModifyConfirmList(list);
+
+  // TODO: PDU Session Resource Failed to Modify List (Mod Cfm) is not set; the
+  // SMF currently either accepts the new downlink endpoint or rejects the
+  // whole Update SM Context, so there is no per-session failure to report.
+
+  uint8_t* buffer  = nullptr;
+  int encoded_size = 0;
+  modify_confirm_msg->encode2NewBuffer(buffer, encoded_size);
+  if (encoded_size < 0) {
+    Logger::amf_n2().error("Encoding failed");
+    if (buffer) free(buffer);
+    return;
+  }
+  oai::utils::output_wrapper::print_buffer(
+      "amf_n2", "N2 SM buffer data:", buffer, encoded_size);
+  Logger::amf_n2().debug(" (%d bytes) \n", encoded_size);
+
+  bstring b = blk2bstr(buffer, encoded_size);
+  sctp_s_38412.sctp_send_msg(gc->sctp_assoc_id, unc->sctp_stream_send, &b);
+  // free memory
+  oai::utils::utils::bdestroy_wrapper(&b);
+  free(buffer);
+  buffer = nullptr;
 }
 
 //------------------------------------------------------------------------------

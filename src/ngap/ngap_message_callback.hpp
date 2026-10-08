@@ -9,6 +9,7 @@
 #include "NgReset.hpp"
 #include "NgResetAck.hpp"
 #include "NgSetupRequest.hpp"
+#include "PduSessionResourceModifyIndication.hpp"
 #include "PduSessionResourceModifyResponse.hpp"
 #include "PduSessionResourceReleaseResponse.hpp"
 #include "PduSessionResourceSetupResponse.hpp"
@@ -1017,10 +1018,65 @@ int ngap_handle_path_switch_request_failure(
 int pdu_session_resource_modify_indication(
     const sctp_assoc_id_t assoc_id, const sctp_stream_id_t stream,
     struct Ngap_NGAP_PDU* message_p) {
-  Logger::ngap().warn(
-      "PDU Session Resource Modify Indication Handler has not been implemented "
-      "yet, ignoring the message ...");
-  ASN_STRUCT_FREE(asn_DEF_Ngap_NGAP_PDU, message_p);
+  Logger::ngap().debug("Handle PDU Session Resource Modify Indication");
+
+  /* The NG-RAN has moved the downlink N3 endpoint of one or more PDU sessions
+   * on its own (a change of gNB-CU-UP, TS 38.401 8.9.5) and needs the core to
+   * send downlink to the new one. Each session's transfer goes to the SMF as
+   * an Update SM Context; the SMF answers with a Modify Confirm Transfer,
+   * which amf_app routes back to TASK_AMF_N2. */
+  auto modify_indication =
+      std::make_unique<PduSessionResourceModifyIndicationMsg>();
+  if (!modify_indication->decode(message_p)) {
+    Logger::ngap().error(
+        "Decoding PduSessionResourceModifyIndicationMsg message error");
+    return RETURNerror;
+  }
+
+  uint64_t amf_ue_ngap_id          = modify_indication->getAmfUeNgapId();
+  std::shared_ptr<nas_context> nct = {};
+  if (!amf_n1_inst->get_nas_ctx_by_amf_ue_id(amf_ue_ngap_id, nct)) {
+    Logger::ngap().error(
+        "No UE NAS context with amf_ue_ngap_id (0x%x)", amf_ue_ngap_id);
+    return RETURNerror;
+  }
+
+  std::vector<PDUSessionResourceModifyIndicationItem_t> list;
+  if (!modify_indication->getPduSessionResourceModifyIndicationList(list)) {
+    Logger::ngap().error(
+        "PDU Session Resource Modify Indication without a PDU Session "
+        "Resource Modify List (Mod Ind)");
+    return RETURNerror;
+  }
+
+  for (const auto& item : list) {
+    Logger::ngap().debug(
+        "Sending ITTI PDUSessionResourceModifyIndicationTransfer (PDU session "
+        "%d) to TASK_AMF_SBI",
+        item.pduSessionId);
+
+    auto itti_msg = std::make_shared<itti_nsmf_pdusession_update_sm_context>(
+        TASK_NGAP, TASK_AMF_SBI);
+
+    itti_msg->supi           = amf_conv::imsi_to_supi(nct->imsi);
+    itti_msg->pdu_session_id = item.pduSessionId;
+    itti_msg->n2sm           = blk2bstr(
+        item.pduSessionResourceModifyIndicationTransfer.buf,
+        item.pduSessionResourceModifyIndicationTransfer.size);
+    itti_msg->is_n2sm_set    = true;
+    itti_msg->n2sm_info_type = "PDU_RES_MOD_IND";
+    itti_msg->amf_ue_ngap_id = amf_ue_ngap_id;
+    itti_msg->ran_ue_ngap_id = modify_indication->getRanUeNgapId();
+
+    int ret = itti_inst->send_msg(itti_msg);
+    if (0 != ret) {
+      Logger::ngap().error(
+          "Could not send ITTI message %s to task TASK_AMF_SBI",
+          itti_msg->get_msg_name());
+      return RETURNerror;
+    }
+  }
+
   return RETURNok;
 }
 

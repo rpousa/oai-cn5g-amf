@@ -110,6 +110,15 @@ class amf_n2 : public oai::ngap::ngap_app {
       std::shared_ptr<itti_pdu_session_resource_modify_request>& itti_msg);
 
   /*
+   * Handle ITTI message (PDUSessionResourceModifyConfirm)
+   * @param [std::shared_ptr<itti_pdu_session_resource_modify_confirm>&]: ITTI
+   * message
+   * @return void
+   */
+  void handle_itti_message(
+      std::shared_ptr<itti_pdu_session_resource_modify_confirm>& itti_msg);
+
+  /*
    * Handle ITTI message (PDUSessionResourceReleaseCommand)
    * @param [std::shared_ptr<itti_pdu_session_resource_release_command>&]: ITTI
    * message

@@ -543,6 +543,40 @@ void amf_app::handle_itti_message(
           "Could not send ITTI message %s to task TASK_AMF_N2",
           dl_msg->get_msg_name());
     }
+  } else if (
+      itti_msg.is_n2sm_set and !itti_msg.is_n1sm_set and
+      itti_msg.n2sm_info_type.compare("PDU_RES_MOD_CFM") == 0) {
+    /* Answer to a PDU Session Resource Modify Indication. It carries no N1 SM,
+     * so it must not take the branch below: that one builds an
+     * itti_downlink_nas_transfer, and amf_n1 unconditionally runs the NAS
+     * ciphering over its (here absent) payload. */
+    Logger::amf_app().info(
+        "Handle ITTI N1N2 Message Transfer Request (PDU Session Resource "
+        "Modify Confirm)");
+
+    auto dl_msg = std::make_shared<itti_pdu_session_resource_modify_confirm>(
+        TASK_AMF_APP, TASK_AMF_N2);
+
+    if (uc) {
+      dl_msg->amf_ue_ngap_id = uc->amf_ue_ngap_id;
+      dl_msg->ran_ue_ngap_id = uc->ran_ue_ngap_id;
+    } else {
+      Logger::amf_app().warn(
+          "No UE context for SUPI %s, cannot send the PDU Session Resource "
+          "Modify Confirm",
+          itti_msg.supi.c_str());
+      return;
+    }
+
+    dl_msg->n2sm           = bstrcpy(itti_msg.n2sm);
+    dl_msg->pdu_session_id = itti_msg.pdu_session_id;
+
+    int ret = itti_inst->send_msg(dl_msg);
+    if (ret != RETURNok) {
+      Logger::amf_app().error(
+          "Could not send ITTI message %s to task TASK_AMF_N2",
+          dl_msg->get_msg_name());
+    }
   } else if (itti_msg.is_n1sm_set or itti_msg.is_n2sm_set) {
     Logger::amf_app().info("Handle ITTI N1N2 Message Transfer Request");
 

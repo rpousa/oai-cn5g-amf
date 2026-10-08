@@ -211,6 +211,33 @@ class itti_pdu_session_resource_modify_request : public itti_msg_n2 {
   oai::ngap::SNssai s_NSSAI;
 };
 
+/*
+ * Successful outcome of the PDU Session Resource Modify Indication procedure
+ * (TS 38.413 9.2.1.7). Unlike its Modify Request sibling it carries no NAS:
+ * the core is answering the NG-RAN, not the UE.
+ */
+class itti_pdu_session_resource_modify_confirm : public itti_msg_n2 {
+ public:
+  itti_pdu_session_resource_modify_confirm(
+      const task_id_t origin, const task_id_t destination)
+      : itti_msg_n2(PDU_SESSION_RESOURCE_MODIFY_CONFIRM, origin, destination) {
+    n2sm           = nullptr;
+    ran_ue_ngap_id = 0;
+    amf_ue_ngap_id = INVALID_AMF_UE_NGAP_ID;
+    pdu_session_id = 0;
+  }
+  itti_pdu_session_resource_modify_confirm(
+      const itti_pdu_session_resource_modify_confirm&) = delete;
+  virtual ~itti_pdu_session_resource_modify_confirm() {
+    oai::utils::utils::bdestroy_wrapper(&n2sm);
+  }
+
+  bstring n2sm;
+  uint32_t ran_ue_ngap_id;
+  uint64_t amf_ue_ngap_id;
+  uint8_t pdu_session_id;
+};
+
 class itti_pdu_session_resource_release_command : public itti_msg_n2 {
  public:
   itti_pdu_session_resource_release_command(
